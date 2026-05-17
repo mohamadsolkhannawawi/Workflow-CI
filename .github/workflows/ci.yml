@@ -1,4 +1,4 @@
-name: ML Training Pipeline
+name: MLflow CI + Docker Pipeline
 
 on:
   push:
@@ -14,25 +14,87 @@ jobs:
       MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
 
     steps:
+    # =========================
+    # SETUP
+    # =========================
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    - name: Setup Python
+    - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
+        python-version: '3.12'
 
+    - name: Check Env
+      run: |
+        echo $MLFLOW_TRACKING_URI
+
+    # =========================
+    # INSTALL
+    # =========================
     - name: Install dependencies
       run: |
-        pip install -r MLProject/requirements.txt
+        pip install mlflow pandas numpy scikit-learn matplotlib google-api-python-client google-auth
 
-    - name: Run training
+    # =========================
+    # RUN MLFLOW PROJECT
+    # =========================
+    - name: Run mlflow project
       run: |
-        cd MLProject
-        python modelling.py
+        mlflow run MLProject
 
-    - name: Upload artifacts (optional backup)
-      uses: actions/upload-artifact@v4
-      with:
-        name: training-artifacts
-        path: MLProject/artifacts/
+    # =========================
+    # GET RUN ID
+    # =========================
+    - name: Get latest MLflow run_id
+      id: get_run
+      run: |
+        echo "RUN_ID=$(ls -td mlruns/*/* | head -1 | xargs basename)" >> $GITHUB_ENV
+
+    # =========================
+    # (OPTIONAL) INSTALL PYTHON DEPENDENCIES AGAIN
+    # =========================
+    - name: Install Python dependencies
+      run: |
+        pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+    # =========================
+    # UPLOAD TO GOOGLE DRIVE
+    # =========================
+    - name: Upload to Google Drive
+      run: |
+        python MLProject/upload_to_drive.py
+      env:
+        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+    # =========================
+    # BUILD DOCKER
+    # =========================
+    - name: Build Docker Model
+      run: |
+        mlflow models build-docker -m MLProject -n insurance-model
+
+    # =========================
+    # LOGIN DOCKER HUB
+    # =========================
+    - name: Log in to Docker Hub
+      run: |
+        echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+    # =========================
+    # TAG IMAGE
+    # =========================
+    - name: Tag Docker Image
+      run: |
+        docker tag insurance-model ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
+
+    # =========================
+    # PUSH IMAGE
+    # =========================
+    - name: Push Docker Image
+      run: |
+        docker push ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
+
+    - name: Post Log in to Docker Hub
+      run: |
+        docker logout
