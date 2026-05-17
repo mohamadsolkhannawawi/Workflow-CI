@@ -6,8 +6,10 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 import argparse
 import os
-import joblib
 
+# ========================
+# ARGUMENT
+# ========================
 parser = argparse.ArgumentParser()
 parser.add_argument('--train_data', type=str, default='insurance_preprocessing/train.csv')
 parser.add_argument('--test_data', type=str, default='insurance_preprocessing/test.csv')
@@ -38,9 +40,14 @@ mlflow.set_experiment("insurance_prediction")
 train = pd.read_csv(args.train_data)
 test = pd.read_csv(args.test_data)
 
+print("Columns:", train.columns)
+
 if 'charges' not in train.columns:
     raise ValueError("Column 'charges' not found in dataset")
 
+# ========================
+# SPLIT DATA
+# ========================
 X_train = train.drop('charges', axis=1)
 y_train = train['charges']
 X_test = test.drop('charges', axis=1)
@@ -59,14 +66,19 @@ with mlflow.start_run() as run:
 
     mlflow.log_metric("mae", mae)
 
-    # log ke MLflow
+    # ========================
+    # WAJIB (REMOTE LOG)
+    # ========================
     mlflow.sklearn.log_model(model, "model")
 
-    # SIMPAN MODEL LOKAL (FIX DOCKER ERROR)
-    os.makedirs("model", exist_ok=True)
-    joblib.dump(model, "model/model.pkl")
+    # ========================
+    # WAJIB (LOCAL FOR DOCKER)
+    # ========================
+    mlflow.sklearn.save_model(model, "model")
 
-    # SIMPAN RUN_ID
+    # ========================
+    # SAVE RUN ID
+    # ========================
     run_id = run.info.run_id
     print("RUN_ID:", run_id)
 
