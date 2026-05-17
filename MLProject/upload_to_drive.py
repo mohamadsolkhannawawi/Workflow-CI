@@ -4,20 +4,17 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-credentials_info = json.loads(os.environ["GOOGLE_DRIVE_CREDENTIALS"])
+creds = json.loads(os.environ["GOOGLE_DRIVE_CREDENTIALS"])
 
 credentials = service_account.Credentials.from_service_account_info(
-    credentials_info,
+    creds,
     scopes=["https://www.googleapis.com/auth/drive"]
 )
 
 service = build('drive', 'v3', credentials=credentials)
 
-file_metadata = {
-    'name': 'model_artifact.json'
-}
-
-media = MediaFileUpload('MLProject/artifacts/model_summary.json')
+file_metadata = {'name': 'run_id.txt'}
+media = MediaFileUpload('run_id.txt')
 
 file = service.files().create(
     body=file_metadata,

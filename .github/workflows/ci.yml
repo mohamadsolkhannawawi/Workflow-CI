@@ -2,7 +2,7 @@ name: MLflow CI + Docker Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   train:
@@ -14,87 +14,78 @@ jobs:
       MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
 
     steps:
-    # =========================
-    # SETUP
-    # =========================
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      # =========================
+      # SETUP
+      # =========================
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
 
-    - name: Check Env
-      run: |
-        echo $MLFLOW_TRACKING_URI
+      # =========================
+      # INSTALL
+      # =========================
+      - name: Install dependencies
+        run: |
+          pip install mlflow pandas numpy scikit-learn matplotlib google-api-python-client google-auth
 
-    # =========================
-    # INSTALL
-    # =========================
-    - name: Install dependencies
-      run: |
-        pip install mlflow pandas numpy scikit-learn matplotlib google-api-python-client google-auth
+      # =========================
+      # RUN MLFLOW PROJECT
+      # =========================
+      - name: Run mlflow project
+        run: |
+          mlflow run MLProject
 
-    # =========================
-    # RUN MLFLOW PROJECT
-    # =========================
-    - name: Run mlflow project
-      run: |
-        mlflow run MLProject
+      # =========================
+      # GET RUN ID (FIXED)
+      # =========================
+      - name: Get RUN_ID
+        run: |
+          echo "RUN_ID=$(cat MLProject/run_id.txt)" >> $GITHUB_ENV
 
-    # =========================
-    # GET RUN ID
-    # =========================
-    - name: Get latest MLflow run_id
-      id: get_run
-      run: |
-        echo "RUN_ID=$(ls -td mlruns/*/* | head -1 | xargs basename)" >> $GITHUB_ENV
+      # =========================
+      # UPLOAD GOOGLE DRIVE
+      # =========================
+      - name: Upload to Google Drive
+        continue-on-error: true
+        run: |
+          cd MLProject
+          python upload_to_drive.py
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-    # =========================
-    # (OPTIONAL) INSTALL PYTHON DEPENDENCIES AGAIN
-    # =========================
-    - name: Install Python dependencies
-      run: |
-        pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+      # =========================
+      # BUILD DOCKER (FIXED)
+      # =========================
+      - name: Build Docker Model
+        run: |
+          mlflow models build-docker \
+          -m runs:/${{ env.RUN_ID }}/model \
+          -n insurance-model
 
-    # =========================
-    # UPLOAD TO GOOGLE DRIVE
-    # =========================
-    - name: Upload to Google Drive
-      run: |
-        python MLProject/upload_to_drive.py
-      env:
-        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+      # =========================
+      # LOGIN DOCKER
+      # =========================
+      - name: Login Docker Hub
+        run: |
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-    # =========================
-    # BUILD DOCKER
-    # =========================
-    - name: Build Docker Model
-      run: |
-        mlflow models build-docker -m MLProject -n insurance-model
+      # =========================
+      # TAG
+      # =========================
+      - name: Tag Image
+        run: |
+          docker tag insurance-model ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
 
-    # =========================
-    # LOGIN DOCKER HUB
-    # =========================
-    - name: Log in to Docker Hub
-      run: |
-        echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+      # =========================
+      # PUSH
+      # =========================
+      - name: Push Image
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
 
-    # =========================
-    # TAG IMAGE
-    # =========================
-    - name: Tag Docker Image
-      run: |
-        docker tag insurance-model ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
-
-    # =========================
-    # PUSH IMAGE
-    # =========================
-    - name: Push Docker Image
-      run: |
-        docker push ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
-
-    - name: Post Log in to Docker Hub
-      run: |
-        docker logout
+      - name: Logout
+        run: docker logout
