@@ -18,21 +18,28 @@ import os
 # ARGUMENT PARSER
 # ========================
 parser = argparse.ArgumentParser()
-parser.add_argument('--train_data',        type=str, default='insurance_preprocessing/train.csv')
-parser.add_argument('--test_data',         type=str, default='insurance_preprocessing/test.csv')
-parser.add_argument('--n_estimators',      type=int, default=200)
-parser.add_argument('--max_depth',         type=int, default=10)
+parser.add_argument('--train_data', type=str, default='insurance_preprocessing/train.csv')
+parser.add_argument('--test_data', type=str, default='insurance_preprocessing/test.csv')
+parser.add_argument('--n_estimators', type=int, default=200)
+parser.add_argument('--max_depth', type=int, default=10)
 parser.add_argument('--min_samples_split', type=int, default=2)
-parser.add_argument('--min_samples_leaf',  type=int, default=1)
-parser.add_argument('--random_state',      type=int, default=42)
+parser.add_argument('--min_samples_leaf', type=int, default=1)
+parser.add_argument('--random_state', type=int, default=42)
 args = parser.parse_args()
 
-# Direktori penyimpanan artefak lokal (PNG, JSON, run_id).
-# Jika env var ARTIFACT_DIR di-set (oleh ci.yml), pakai itu.
-# Fallback ke current working directory (untuk run lokal).
-ARTIFACT_DIR = os.environ.get("ARTIFACT_DIR", os.getcwd())
+# ========================
+# SETUP MLFLOW
+# ========================
+mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI"))
+mlflow.set_experiment("insurance_prediction")
+
+# ========================
+# ARTIFACT DIR
+# ========================
+ARTIFACT_DIR = "artifacts"
 os.makedirs(ARTIFACT_DIR, exist_ok=True)
-print(f"[INFO] Artefak akan disimpan di: {ARTIFACT_DIR}")
+
+print(f"[INFO] Artifact dir: {ARTIFACT_DIR}")
 
 # ========================
 # LOAD DATA
@@ -46,90 +53,101 @@ X_test  = test.drop('charges', axis=1)
 y_test  = test['charges']
 
 feature_names = list(X_train.columns)
-print(f"[INFO] Train: {X_train.shape} | Test: {X_test.shape}")
+
+print(f"[INFO] Train shape: {X_train.shape}")
+print(f"[INFO] Test shape: {X_test.shape}")
 
 # ========================
 # TRAINING
 # ========================
-mlflow.log_param("n_estimators",      args.n_estimators)
-mlflow.log_param("max_depth",         args.max_depth)
-mlflow.log_param("min_samples_split", args.min_samples_split)
-mlflow.log_param("min_samples_leaf",  args.min_samples_leaf)
-mlflow.log_param("random_state",      args.random_state)
+with mlflow.start_run():
 
-model = RandomForestRegressor(
-    n_estimators=args.n_estimators,
-    max_depth=args.max_depth,
-    min_samples_split=args.min_samples_split,
-    min_samples_leaf=args.min_samples_leaf,
-    random_state=args.random_state
-)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
+    # Parameters
+    mlflow.log_param("n_estimators", args.n_estimators)
+    mlflow.log_param("max_depth", args.max_depth)
+    mlflow.log_param("min_samples_split", args.min_samples_split)
+    mlflow.log_param("min_samples_leaf", args.min_samples_leaf)
+    mlflow.log_param("random_state", args.random_state)
 
-mae  = mean_absolute_error(y_test, y_pred)
-mse  = mean_squared_error(y_test, y_pred)
-rmse = np.sqrt(mse)
-r2   = r2_score(y_test, y_pred)
-mape = np.mean(np.abs((y_test - y_pred) / y_test)) * 100
+    # Model
+    model = RandomForestRegressor(
+        n_estimators=args.n_estimators,
+        max_depth=args.max_depth,
+        min_samples_split=args.min_samples_split,
+        min_samples_leaf=args.min_samples_leaf,
+        random_state=args.random_state
+    )
 
-mlflow.log_metric("mae",      mae)
-mlflow.log_metric("mse",      mse)
-mlflow.log_metric("rmse",     rmse)
-mlflow.log_metric("r2_score", r2)
-mlflow.log_metric("mape",     mape)
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
 
-print(f"MAE={mae:.4f} | RMSE={rmse:.4f} | R2={r2:.4f}")
+    # Metrics
+    mae  = mean_absolute_error(y_test, y_pred)
+    mse  = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+    r2   = r2_score(y_test, y_pred)
+    mape = np.mean(np.abs((y_test - y_pred) / y_test)) * 100
 
-# ========================
-# SIMPAN ARTEFAK KE ARTIFACT_DIR
-# ========================
-fi_path  = os.path.join(ARTIFACT_DIR, "feature_importance.png")
-avp_path = os.path.join(ARTIFACT_DIR, "actual_vs_predicted.png")
-js_path  = os.path.join(ARTIFACT_DIR, "model_summary.json")
-rid_path = os.path.join(ARTIFACT_DIR, "latest_run_id.txt")
+    mlflow.log_metric("mae", mae)
+    mlflow.log_metric("mse", mse)
+    mlflow.log_metric("rmse", rmse)
+    mlflow.log_metric("r2_score", r2)
+    mlflow.log_metric("mape", mape)
 
-# Feature importance plot
-importances = model.feature_importances_
-indices = np.argsort(importances)[::-1]
-plt.figure(figsize=(10, 6))
-plt.bar(range(len(feature_names)), importances[indices], color='steelblue')
-plt.xticks(range(len(feature_names)), [feature_names[i] for i in indices], rotation=45, ha='right')
-plt.title('Feature Importances')
-plt.tight_layout()
-plt.savefig(fi_path, dpi=100)
-plt.close()
+    print(f"[INFO] MAE={mae:.4f} | RMSE={rmse:.4f} | R2={r2:.4f}")
 
-# Actual vs Predicted
-plt.figure(figsize=(8, 6))
-plt.scatter(y_test, y_pred, alpha=0.5, color='steelblue')
-plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
-plt.xlabel('Actual'); plt.ylabel('Predicted')
-plt.title('Actual vs Predicted')
-plt.tight_layout()
-plt.savefig(avp_path, dpi=100)
-plt.close()
+    # ========================
+    # SAVE ARTIFACTS
+    # ========================
+    fi_path = os.path.join(ARTIFACT_DIR, "feature_importance.png")
+    avp_path = os.path.join(ARTIFACT_DIR, "actual_vs_predicted.png")
+    js_path = os.path.join(ARTIFACT_DIR, "model_summary.json")
 
-# Model summary JSON
-summary = {
-    "mae": round(mae, 4), "mse": round(mse, 4),
-    "rmse": round(rmse, 4), "r2": round(r2, 4), "mape": round(mape, 4)
-}
-with open(js_path, "w") as f:
-    json.dump(summary, f, indent=4)
+    # Feature importance
+    importances = model.feature_importances_
+    indices = np.argsort(importances)[::-1]
 
-print(f"[INFO] Artefak tersimpan: {fi_path}, {avp_path}, {js_path}")
+    plt.figure(figsize=(10, 6))
+    plt.bar(range(len(feature_names)), importances[indices])
+    plt.xticks(range(len(feature_names)),
+               [feature_names[i] for i in indices],
+               rotation=45, ha='right')
+    plt.title("Feature Importance")
+    plt.tight_layout()
+    plt.savefig(fi_path)
+    plt.close()
 
-# Log model & artefak ke MLflow/DagsHub
-mlflow.sklearn.log_model(model, artifact_path="model")
-mlflow.log_artifact(fi_path)
-mlflow.log_artifact(avp_path)
-mlflow.log_artifact(js_path)
+    # Actual vs Predicted
+    plt.figure(figsize=(8, 6))
+    plt.scatter(y_test, y_pred, alpha=0.5)
+    plt.plot([y_test.min(), y_test.max()],
+             [y_test.min(), y_test.max()], 'r--')
+    plt.xlabel("Actual")
+    plt.ylabel("Predicted")
+    plt.title("Actual vs Predicted")
+    plt.tight_layout()
+    plt.savefig(avp_path)
+    plt.close()
 
-# Simpan run_id ke ARTIFACT_DIR agar ci.yml bisa membacanya
-run_id = mlflow.active_run().info.run_id
-print(f"[INFO] Run ID: {run_id}")
-with open(rid_path, "w") as f:
-    f.write(run_id)
+    # Summary JSON
+    summary = {
+        "mae": round(mae, 4),
+        "mse": round(mse, 4),
+        "rmse": round(rmse, 4),
+        "r2": round(r2, 4),
+        "mape": round(mape, 4)
+    }
+
+    with open(js_path, "w") as f:
+        json.dump(summary, f, indent=4)
+
+    # Log ke MLflow
+    mlflow.sklearn.log_model(model, "model")
+    mlflow.log_artifact(fi_path)
+    mlflow.log_artifact(avp_path)
+    mlflow.log_artifact(js_path)
+
+    run_id = mlflow.active_run().info.run_id
+    print(f"[INFO] Run ID: {run_id}")
 
 print("[INFO] Training selesai!")

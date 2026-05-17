@@ -1,177 +1,38 @@
-name: MLOps CI Pipeline
+name: ML Training Pipeline
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
-  train-and-deploy:
+  train:
     runs-on: ubuntu-latest
 
+    env:
+      MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+      MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
-      - name: Set up Python 3.12.7
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12.7"
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
 
-      - name: Check Env
-        run: |
-          python --version
-          pip --version
-          echo "Working directory: $(pwd)"
+    - name: Install dependencies
+      run: |
+        pip install -r MLProject/requirements.txt
 
-      - name: Install Dependencies
-        run: |
-          pip install mlflow==2.19.0 pandas numpy scikit-learn \
-                      matplotlib seaborn dagshub kaggle \
-                      google-api-python-client google-auth
+    - name: Run training
+      run: |
+        cd MLProject
+        python modelling.py
 
-      - name: Download Dataset from Kaggle
-        env:
-          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
-          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
-        run: |
-          mkdir -p ~/.kaggle
-          echo "{\"username\":\"${KAGGLE_USERNAME}\",\"key\":\"${KAGGLE_KEY}\"}" > ~/.kaggle/kaggle.json
-          chmod 600 ~/.kaggle/kaggle.json
-          kaggle datasets download -d mirichoi0218/insurance --unzip -p ./MLProject/
-
-      - name: Run Preprocessing
-        run: |
-          cd MLProject
-          python -c "
-          import pandas as pd, numpy as np
-          from sklearn.model_selection import train_test_split
-          from sklearn.preprocessing import StandardScaler
-          import os
-
-          df = pd.read_csv('insurance.csv')
-          df = df.drop_duplicates()
-          df['sex'] = df['sex'].map({'male':1,'female':0})
-          df['smoker'] = df['smoker'].map({'yes':1,'no':0})
-          df = pd.get_dummies(df, columns=['region'], drop_first=False)
-
-          Q1=df['bmi'].quantile(0.25); Q3=df['bmi'].quantile(0.75); IQR=Q3-Q1
-          df['bmi']=df['bmi'].clip(Q1-1.5*IQR, Q3+1.5*IQR)
-
-          X=df.drop('charges',axis=1); y=df['charges']
-          X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=0.2,random_state=42)
-
-          scaler=StandardScaler()
-          for col in ['age','bmi','children']:
-              X_train[col]=scaler.fit_transform(X_train[[col]])
-              X_test[col]=scaler.transform(X_test[[col]])
-
-          os.makedirs('insurance_preprocessing',exist_ok=True)
-          train=X_train.copy(); train['charges']=y_train.values
-          test=X_test.copy(); test['charges']=y_test.values
-          train.to_csv('insurance_preprocessing/train.csv',index=False)
-          test.to_csv('insurance_preprocessing/test.csv',index=False)
-          print('Preprocessing done!', train.shape, test.shape)
-          "
-
-      - name: Run MLflow Project
-        env:
-          MLFLOW_TRACKING_URI: https://dagshub.com/${{ secrets.DAGSHUB_USERNAME }}/mlsystem-solkhan.mlflow
-          MLFLOW_TRACKING_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
-          MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
-          ARTIFACT_DIR: ${{ github.workspace }}/MLProject
-        run: |
-          cd MLProject
-          mlflow run . --env-manager=local \
-            --experiment-name "Insurance-CI-Pipeline" \
-            -P n_estimators=200 \
-            -P max_depth=10 \
-            -P min_samples_split=2 \
-            -P min_samples_leaf=1 \
-            -P random_state=42
-
-      - name: Get Latest MLflow Run ID
-        run: |
-          RUN_ID=$(cat MLProject/latest_run_id.txt)
-          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
-          echo "Latest Run ID: $RUN_ID"
-
-      # FIX: Ganti adityak74/google-drive-upload-git-action (Docker-based, hanya
-      # baca file dari git checkout) dengan Python script langsung yang bisa
-      # mengakses file runtime di $GITHUB_WORKSPACE.
-      - name: Upload Artifacts to Google Drive
-        env:
-          GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
-          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
-        run: |
-          python - << 'EOF'
-          import os, json
-          from googleapiclient.discovery import build
-          from googleapiclient.http import MediaFileUpload
-          from google.oauth2.service_account import Credentials
-
-          creds_json = json.loads(os.environ["GOOGLE_DRIVE_CREDENTIALS"])
-          creds = Credentials.from_service_account_info(
-              creds_json,
-              scopes=["https://www.googleapis.com/auth/drive"]
-          )
-          service = build("drive", "v3", credentials=creds)
-          folder_id = os.environ["GOOGLE_DRIVE_FOLDER_ID"]
-
-          workspace = os.environ["GITHUB_WORKSPACE"]
-          files = [
-              "MLProject/feature_importance.png",
-              "MLProject/actual_vs_predicted.png",
-              "MLProject/model_summary.json",
-          ]
-
-          for rel_path in files:
-              full_path = os.path.join(workspace, rel_path)
-              filename  = os.path.basename(full_path)
-              mimetype  = "image/png" if full_path.endswith(".png") else "application/json"
-
-              # Hapus file lama dengan nama sama jika ada (overwrite)
-              results = service.files().list(
-                  q=f"name='{filename}' and '{folder_id}' in parents and trashed=false",
-                  fields="files(id)"
-              ).execute()
-              for f in results.get("files", []):
-                  service.files().delete(fileId=f["id"]).execute()
-
-              media = MediaFileUpload(full_path, mimetype=mimetype)
-              meta  = {"name": filename, "parents": [folder_id]}
-              uploaded = service.files().create(body=meta, media_body=media, fields="id").execute()
-              print(f"Uploaded {filename} → id={uploaded['id']}")
-
-          print("Semua artefak berhasil diupload ke Google Drive!")
-          EOF
-
-      - name: Build Docker Model
-        env:
-          MLFLOW_TRACKING_URI: https://dagshub.com/${{ secrets.DAGSHUB_USERNAME }}/mlsystem-solkhan.mlflow
-          MLFLOW_TRACKING_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
-          MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
-        run: |
-          mlflow models build-docker \
-            --model-uri "runs:/${{ env.RUN_ID }}/model" \
-            --name "insurance-model" \
-            --enable-mlserver
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Tag Docker Image
-        run: |
-          docker tag insurance-model:latest \
-            mohamadsolkhannawawi/insurance-model:latest
-          docker tag insurance-model:latest \
-            mohamadsolkhannawawi/insurance-model:${{ github.sha }}
-
-      - name: Push Docker Image
-        run: |
-          docker push mohamadsolkhannawawi/insurance-model:latest
-          docker push mohamadsolkhannawawi/insurance-model:${{ github.sha }}
-          echo "Docker image pushed: mohamadsolkhannawawi/insurance-model:latest"
+    - name: Upload artifacts (optional backup)
+      uses: actions/upload-artifact@v4
+      with:
+        name: training-artifacts
+        path: MLProject/artifacts/
