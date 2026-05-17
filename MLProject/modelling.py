@@ -12,6 +12,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import argparse
 import json
+import os
 
 # ========================
 # ARGUMENT PARSER
@@ -26,9 +27,12 @@ parser.add_argument('--min_samples_leaf',  type=int, default=1)
 parser.add_argument('--random_state',      type=int, default=42)
 args = parser.parse_args()
 
-# TIDAK ada dagshub.init() dan TIDAK ada mlflow.set_experiment() di sini.
-# Keduanya menyebabkan konflik dengan run yang sudah dibuat oleh `mlflow run .`.
-# Experiment dan tracking URI di-set dari ci.yml via env var dan flag --experiment-name.
+# Direktori penyimpanan artefak lokal (PNG, JSON, run_id).
+# Jika env var ARTIFACT_DIR di-set (oleh ci.yml), pakai itu.
+# Fallback ke current working directory (untuk run lokal).
+ARTIFACT_DIR = os.environ.get("ARTIFACT_DIR", os.getcwd())
+os.makedirs(ARTIFACT_DIR, exist_ok=True)
+print(f"[INFO] Artefak akan disimpan di: {ARTIFACT_DIR}")
 
 # ========================
 # LOAD DATA
@@ -45,7 +49,7 @@ feature_names = list(X_train.columns)
 print(f"[INFO] Train: {X_train.shape} | Test: {X_test.shape}")
 
 # ========================
-# TRAINING — log langsung ke run aktif dari MLflow Projects
+# TRAINING
 # ========================
 mlflow.log_param("n_estimators",      args.n_estimators)
 mlflow.log_param("max_depth",         args.max_depth)
@@ -77,6 +81,14 @@ mlflow.log_metric("mape",     mape)
 
 print(f"MAE={mae:.4f} | RMSE={rmse:.4f} | R2={r2:.4f}")
 
+# ========================
+# SIMPAN ARTEFAK KE ARTIFACT_DIR
+# ========================
+fi_path  = os.path.join(ARTIFACT_DIR, "feature_importance.png")
+avp_path = os.path.join(ARTIFACT_DIR, "actual_vs_predicted.png")
+js_path  = os.path.join(ARTIFACT_DIR, "model_summary.json")
+rid_path = os.path.join(ARTIFACT_DIR, "latest_run_id.txt")
+
 # Feature importance plot
 importances = model.feature_importances_
 indices = np.argsort(importances)[::-1]
@@ -85,7 +97,7 @@ plt.bar(range(len(feature_names)), importances[indices], color='steelblue')
 plt.xticks(range(len(feature_names)), [feature_names[i] for i in indices], rotation=45, ha='right')
 plt.title('Feature Importances')
 plt.tight_layout()
-plt.savefig("feature_importance.png", dpi=100)
+plt.savefig(fi_path, dpi=100)
 plt.close()
 
 # Actual vs Predicted
@@ -95,7 +107,7 @@ plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
 plt.xlabel('Actual'); plt.ylabel('Predicted')
 plt.title('Actual vs Predicted')
 plt.tight_layout()
-plt.savefig("actual_vs_predicted.png", dpi=100)
+plt.savefig(avp_path, dpi=100)
 plt.close()
 
 # Model summary JSON
@@ -103,19 +115,21 @@ summary = {
     "mae": round(mae, 4), "mse": round(mse, 4),
     "rmse": round(rmse, 4), "r2": round(r2, 4), "mape": round(mape, 4)
 }
-with open("model_summary.json", "w") as f:
+with open(js_path, "w") as f:
     json.dump(summary, f, indent=4)
 
-# Log model & artefak
-mlflow.sklearn.log_model(model, artifact_path="model")
-mlflow.log_artifact("feature_importance.png")
-mlflow.log_artifact("actual_vs_predicted.png")
-mlflow.log_artifact("model_summary.json")
+print(f"[INFO] Artefak tersimpan: {fi_path}, {avp_path}, {js_path}")
 
-# Simpan run_id untuk step Build Docker
+# Log model & artefak ke MLflow/DagsHub
+mlflow.sklearn.log_model(model, artifact_path="model")
+mlflow.log_artifact(fi_path)
+mlflow.log_artifact(avp_path)
+mlflow.log_artifact(js_path)
+
+# Simpan run_id ke ARTIFACT_DIR agar ci.yml bisa membacanya
 run_id = mlflow.active_run().info.run_id
 print(f"[INFO] Run ID: {run_id}")
-with open("latest_run_id.txt", "w") as f:
+with open(rid_path, "w") as f:
     f.write(run_id)
 
 print("[INFO] Training selesai!")
