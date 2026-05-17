@@ -27,7 +27,8 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install mlflow==2.19.0 pandas numpy scikit-learn \
-                      matplotlib seaborn dagshub kaggle
+                      matplotlib seaborn dagshub kaggle \
+                      google-api-python-client google-auth
 
       - name: Download Dataset from Kaggle
         env:
@@ -78,10 +79,6 @@ jobs:
           MLFLOW_TRACKING_URI: https://dagshub.com/${{ secrets.DAGSHUB_USERNAME }}/mlsystem-solkhan.mlflow
           MLFLOW_TRACKING_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
           MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
-          # FIX: Beritahu modelling.py ke mana harus menyimpan artefak.
-          # mlflow run . mengeksekusi script di direktori temp (/tmp/...),
-          # sehingga file PNG/JSON tidak tersimpan di MLProject/.
-          # Dengan ARTIFACT_DIR, modelling.py menyimpan langsung ke MLProject/.
           ARTIFACT_DIR: ${{ github.workspace }}/MLProject
         run: |
           cd MLProject
@@ -99,18 +96,55 @@ jobs:
           echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
           echo "Latest Run ID: $RUN_ID"
 
-      - name: Verify Artifacts
-        run: |
-          echo "=== Isi MLProject/ ==="
-          ls -la MLProject/
-
+      # FIX: Ganti adityak74/google-drive-upload-git-action (Docker-based, hanya
+      # baca file dari git checkout) dengan Python script langsung yang bisa
+      # mengakses file runtime di $GITHUB_WORKSPACE.
       - name: Upload Artifacts to Google Drive
-        uses: adityak74/google-drive-upload-git-action@main
-        with:
-          credentials: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
-          filename: "MLProject/feature_importance.png,MLProject/actual_vs_predicted.png,MLProject/model_summary.json"
-          folderId: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
-          overwrite: true
+        env:
+          GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+        run: |
+          python - << 'EOF'
+          import os, json
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+          from google.oauth2.service_account import Credentials
+
+          creds_json = json.loads(os.environ["GOOGLE_DRIVE_CREDENTIALS"])
+          creds = Credentials.from_service_account_info(
+              creds_json,
+              scopes=["https://www.googleapis.com/auth/drive"]
+          )
+          service = build("drive", "v3", credentials=creds)
+          folder_id = os.environ["GOOGLE_DRIVE_FOLDER_ID"]
+
+          workspace = os.environ["GITHUB_WORKSPACE"]
+          files = [
+              "MLProject/feature_importance.png",
+              "MLProject/actual_vs_predicted.png",
+              "MLProject/model_summary.json",
+          ]
+
+          for rel_path in files:
+              full_path = os.path.join(workspace, rel_path)
+              filename  = os.path.basename(full_path)
+              mimetype  = "image/png" if full_path.endswith(".png") else "application/json"
+
+              # Hapus file lama dengan nama sama jika ada (overwrite)
+              results = service.files().list(
+                  q=f"name='{filename}' and '{folder_id}' in parents and trashed=false",
+                  fields="files(id)"
+              ).execute()
+              for f in results.get("files", []):
+                  service.files().delete(fileId=f["id"]).execute()
+
+              media = MediaFileUpload(full_path, mimetype=mimetype)
+              meta  = {"name": filename, "parents": [folder_id]}
+              uploaded = service.files().create(body=meta, media_body=media, fields="id").execute()
+              print(f"Uploaded {filename} → id={uploaded['id']}")
+
+          print("Semua artefak berhasil diupload ke Google Drive!")
+          EOF
 
       - name: Build Docker Model
         env:
