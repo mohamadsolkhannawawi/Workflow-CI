@@ -2,6 +2,10 @@
 Modelling - MLProject Entry Point
 Author: Mohamad Solkhan Nawawi
 Digunakan oleh MLProject dan GitHub Actions CI
+
+PERBAIKAN:
+- Hapus mlflow.start_run() karena MLflow Projects sudah membuat run otomatis
+- Gunakan mlflow.active_run() untuk ambil run_id yang sudah ada
 """
 
 import pandas as pd
@@ -43,94 +47,97 @@ mlflow.set_experiment("Insurance-CI-Pipeline")
 # LOAD DATA
 # ========================
 train = pd.read_csv(args.train_data)
-test = pd.read_csv(args.test_data)
+test  = pd.read_csv(args.test_data)
 
 X_train = train.drop('charges', axis=1)
 y_train = train['charges']
-X_test = test.drop('charges', axis=1)
-y_test = test['charges']
+X_test  = test.drop('charges', axis=1)
+y_test  = test['charges']
 
 feature_names = list(X_train.columns)
 print(f"[INFO] Train: {X_train.shape} | Test: {X_test.shape}")
 
 # ========================
 # TRAINING
+# FIX: Tidak pakai mlflow.start_run() — MLflow Projects sudah membuat
+#      run aktif secara otomatis. Langsung log ke run yang sudah ada.
 # ========================
-with mlflow.start_run(run_name="CI-RandomForest"):
+mlflow.set_tag("run_name", "CI-RandomForest")
 
-    # Log params
-    mlflow.log_param("n_estimators", args.n_estimators)
-    mlflow.log_param("max_depth", args.max_depth)
-    mlflow.log_param("min_samples_split", args.min_samples_split)
-    mlflow.log_param("min_samples_leaf", args.min_samples_leaf)
-    mlflow.log_param("random_state", args.random_state)
+# Log params
+mlflow.log_param("n_estimators",      args.n_estimators)
+mlflow.log_param("max_depth",         args.max_depth)
+mlflow.log_param("min_samples_split", args.min_samples_split)
+mlflow.log_param("min_samples_leaf",  args.min_samples_leaf)
+mlflow.log_param("random_state",      args.random_state)
 
-    # Train
-    model = RandomForestRegressor(
-        n_estimators=args.n_estimators,
-        max_depth=args.max_depth,
-        min_samples_split=args.min_samples_split,
-        min_samples_leaf=args.min_samples_leaf,
-        random_state=args.random_state
-    )
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
+# Train
+model = RandomForestRegressor(
+    n_estimators=args.n_estimators,
+    max_depth=args.max_depth,
+    min_samples_split=args.min_samples_split,
+    min_samples_leaf=args.min_samples_leaf,
+    random_state=args.random_state
+)
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
 
-    # Metrics
-    mae = mean_absolute_error(y_test, y_pred)
-    mse = mean_squared_error(y_test, y_pred)
-    rmse = np.sqrt(mse)
-    r2 = r2_score(y_test, y_pred)
-    mape = np.mean(np.abs((y_test - y_pred) / y_test)) * 100
+# Metrics
+mae  = mean_absolute_error(y_test, y_pred)
+mse  = mean_squared_error(y_test, y_pred)
+rmse = np.sqrt(mse)
+r2   = r2_score(y_test, y_pred)
+mape = np.mean(np.abs((y_test - y_pred) / y_test)) * 100
 
-    mlflow.log_metric("mae", mae)
-    mlflow.log_metric("mse", mse)
-    mlflow.log_metric("rmse", rmse)
-    mlflow.log_metric("r2_score", r2)
-    mlflow.log_metric("mape", mape)
+mlflow.log_metric("mae",      mae)
+mlflow.log_metric("mse",      mse)
+mlflow.log_metric("rmse",     rmse)
+mlflow.log_metric("r2_score", r2)
+mlflow.log_metric("mape",     mape)
 
-    print(f"MAE={mae:.4f} | RMSE={rmse:.4f} | R2={r2:.4f}")
+print(f"MAE={mae:.4f} | RMSE={rmse:.4f} | R2={r2:.4f}")
 
-    # Feature importance plot
-    importances = model.feature_importances_
-    indices = np.argsort(importances)[::-1]
-    plt.figure(figsize=(10, 6))
-    plt.bar(range(len(feature_names)), importances[indices], color='steelblue')
-    plt.xticks(range(len(feature_names)), [feature_names[i] for i in indices], rotation=45, ha='right')
-    plt.title('Feature Importances')
-    plt.tight_layout()
-    plt.savefig("feature_importance.png", dpi=100)
-    plt.close()
+# Feature importance plot
+importances = model.feature_importances_
+indices = np.argsort(importances)[::-1]
+plt.figure(figsize=(10, 6))
+plt.bar(range(len(feature_names)), importances[indices], color='steelblue')
+plt.xticks(range(len(feature_names)), [feature_names[i] for i in indices], rotation=45, ha='right')
+plt.title('Feature Importances')
+plt.tight_layout()
+plt.savefig("feature_importance.png", dpi=100)
+plt.close()
 
-    # Actual vs Predicted
-    plt.figure(figsize=(8, 6))
-    plt.scatter(y_test, y_pred, alpha=0.5, color='steelblue')
-    plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
-    plt.xlabel('Actual'); plt.ylabel('Predicted')
-    plt.title('Actual vs Predicted')
-    plt.tight_layout()
-    plt.savefig("actual_vs_predicted.png", dpi=100)
-    plt.close()
+# Actual vs Predicted
+plt.figure(figsize=(8, 6))
+plt.scatter(y_test, y_pred, alpha=0.5, color='steelblue')
+plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
+plt.xlabel('Actual'); plt.ylabel('Predicted')
+plt.title('Actual vs Predicted')
+plt.tight_layout()
+plt.savefig("actual_vs_predicted.png", dpi=100)
+plt.close()
 
-    # Model summary
-    summary = {
-        "mae": round(mae, 4), "mse": round(mse, 4),
-        "rmse": round(rmse, 4), "r2": round(r2, 4), "mape": round(mape, 4)
-    }
-    with open("model_summary.json", "w") as f:
-        json.dump(summary, f, indent=4)
+# Model summary JSON
+summary = {
+    "mae": round(mae, 4), "mse": round(mse, 4),
+    "rmse": round(rmse, 4), "r2": round(r2, 4), "mape": round(mape, 4)
+}
+with open("model_summary.json", "w") as f:
+    json.dump(summary, f, indent=4)
 
-    # Log model & artefak
-    mlflow.sklearn.log_model(model, artifact_path="model")
-    mlflow.log_artifact("feature_importance.png")
-    mlflow.log_artifact("actual_vs_predicted.png")
-    mlflow.log_artifact("model_summary.json")
+# Log model & artefak
+mlflow.sklearn.log_model(model, artifact_path="model")
+mlflow.log_artifact("feature_importance.png")
+mlflow.log_artifact("actual_vs_predicted.png")
+mlflow.log_artifact("model_summary.json")
 
-    run_id = mlflow.active_run().info.run_id
-    print(f"[INFO] Run ID: {run_id}")
+# Ambil run_id dari run aktif yang dibuat MLflow Projects
+run_id = mlflow.active_run().info.run_id
+print(f"[INFO] Run ID: {run_id}")
 
-    # Simpan run_id untuk dipakai step berikutnya
-    with open("latest_run_id.txt", "w") as f:
-        f.write(run_id)
+# Simpan run_id untuk dipakai step Build Docker
+with open("latest_run_id.txt", "w") as f:
+    f.write(run_id)
 
 print("[INFO] Training selesai!")
