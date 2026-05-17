@@ -12,37 +12,67 @@ parser.add_argument('--train_data', type=str, default='insurance_preprocessing/t
 parser.add_argument('--test_data', type=str, default='insurance_preprocessing/test.csv')
 args = parser.parse_args()
 
-# MLflow setup
+print("=== DEBUG PATH ===")
+print("Train path:", args.train_data)
+print("Test path:", args.test_data)
+
+# ========================
+# VALIDASI FILE (ANTI ERROR)
+# ========================
+if not os.path.exists(args.train_data):
+    raise FileNotFoundError(f"Train file not found: {args.train_data}")
+
+if not os.path.exists(args.test_data):
+    raise FileNotFoundError(f"Test file not found: {args.test_data}")
+
+# ========================
+# MLFLOW SETUP
+# ========================
 mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI"))
 mlflow.set_experiment("insurance_prediction")
 
-# Load data
+# ========================
+# LOAD DATA
+# ========================
 train = pd.read_csv(args.train_data)
 test = pd.read_csv(args.test_data)
 
+print("Columns:", train.columns)
+
+# ========================
+# VALIDASI KOLOM
+# ========================
+if 'charges' not in train.columns:
+    raise ValueError("Column 'charges' not found in dataset")
+
+# ========================
+# SPLIT
+# ========================
 X_train = train.drop('charges', axis=1)
 y_train = train['charges']
 X_test = test.drop('charges', axis=1)
 y_test = test['charges']
 
-# Training
+# ========================
+# TRAINING
+# ========================
 with mlflow.start_run() as run:
 
     model = RandomForestRegressor()
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
-    mae = mean_absolute_error(y_test, y_pred)
 
+    mae = mean_absolute_error(y_test, y_pred)
     mlflow.log_metric("mae", mae)
 
-    # 🔥 WAJIB: log model
+    # 🔥 WAJIB UNTUK DOCKER
     mlflow.sklearn.log_model(model, "model")
 
-    # 🔥 SIMPAN RUN_ID
     run_id = run.info.run_id
     print("RUN_ID:", run_id)
 
+    # 🔥 SIMPAN RUN_ID
     with open("run_id.txt", "w") as f:
         f.write(run_id)
 

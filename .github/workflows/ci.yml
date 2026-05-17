@@ -2,7 +2,7 @@ name: MLflow CI + Docker Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
 
 jobs:
   train:
@@ -14,86 +14,64 @@ jobs:
       MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
 
     steps:
-      # =========================
-      # SETUP
-      # =========================
-      - name: Checkout repository
-        uses: actions/checkout@v3
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.12"
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
-      # =========================
-      # INSTALL
-      # =========================
-      - name: Install dependencies
-        run: |
-          pip install mlflow pandas numpy scikit-learn matplotlib google-api-python-client google-auth
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
 
-      # =========================
-      # RUN MLFLOW PROJECT
-      # =========================
-      - name: Run MLflow Project
-        run: |
-          mlflow run MLProject
+    - name: Install dependencies
+      run: |
+        pip install mlflow pandas numpy scikit-learn matplotlib google-api-python-client google-auth
 
-      # =========================
-      # DEBUG RUN_ID
-      # =========================
-      - name: Debug RUN_ID file
-        run: |
-          ls -lah MLProject
-          cat MLProject/run_id.txt
+    # 🔥 DEBUG MODE (WAJIB)
+    - name: Run MLflow Project (DEBUG)
+      run: |
+        mlflow run MLProject --env-manager=local
 
-      # =========================
-      # SET ENV RUN_ID
-      # =========================
-      - name: Set RUN_ID
-        run: |
-          echo "RUN_ID=$(cat MLProject/run_id.txt)" >> $GITHUB_ENV
+    # 🔍 DEBUG FILE
+    - name: Debug files
+      run: |
+        ls -R
 
-      # =========================
-      # UPLOAD GOOGLE DRIVE
-      # =========================
-      - name: Upload to Google Drive
-        continue-on-error: true
-        run: |
-          cd MLProject
-          python upload_to_drive.py
-        env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+    - name: Debug RUN_ID
+      run: |
+        cat MLProject/run_id.txt
 
-      # =========================
-      # BUILD DOCKER (FIXED)
-      # =========================
-      - name: Build Docker Model
-        run: |
-          mlflow models build-docker \
-          -m runs:/${{ env.RUN_ID }}/model \
-          -n insurance-model
+    - name: Set RUN_ID
+      run: |
+        echo "RUN_ID=$(cat MLProject/run_id.txt)" >> $GITHUB_ENV
 
-      # =========================
-      # LOGIN DOCKER
-      # =========================
-      - name: Login Docker Hub
-        run: |
-          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+    # Google Drive (tidak boleh gagalkan pipeline)
+    - name: Upload to Google Drive
+      continue-on-error: true
+      run: |
+        cd MLProject
+        python upload_to_drive.py
+      env:
+        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-      # =========================
-      # TAG IMAGE
-      # =========================
-      - name: Tag Docker Image
-        run: |
-          docker tag insurance-model ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
+    # 🔥 BUILD DOCKER FIXED
+    - name: Build Docker Model
+      run: |
+        mlflow models build-docker \
+        -m runs:/${{ env.RUN_ID }}/model \
+        -n insurance-model
 
-      # =========================
-      # PUSH IMAGE
-      # =========================
-      - name: Push Docker Image
-        run: |
-          docker push ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
+    - name: Login Docker Hub
+      run: |
+        echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-      - name: Logout
-        run: docker logout
+    - name: Tag Docker Image
+      run: |
+        docker tag insurance-model ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
+
+    - name: Push Docker Image
+      run: |
+        docker push ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
+
+    - name: Logout
+      run: docker logout

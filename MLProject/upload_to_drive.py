@@ -4,6 +4,10 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+if "GOOGLE_DRIVE_CREDENTIALS" not in os.environ:
+    print("No Google credentials, skip upload")
+    exit(0)
+
 creds = json.loads(os.environ["GOOGLE_DRIVE_CREDENTIALS"])
 
 credentials = service_account.Credentials.from_service_account_info(
