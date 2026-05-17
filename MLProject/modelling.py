@@ -1,11 +1,12 @@
 """
 Modelling - MLProject Entry Point
 Author: Mohamad Solkhan Nawawi
-Digunakan oleh MLProject dan GitHub Actions CI
 
 PERBAIKAN:
-- Hapus mlflow.start_run() karena MLflow Projects sudah membuat run otomatis
-- Gunakan mlflow.active_run() untuk ambil run_id yang sudah ada
+- Hapus dagshub.init() — tracking URI di-set via MLFLOW_TRACKING_URI di ci.yml
+  sebelum `mlflow run .` dijalankan. dagshub.init() menimpa URI sehingga
+  run ID dari MLflow Projects tidak dikenal di DagsHub (RESOURCE_DOES_NOT_EXIST).
+- Tidak perlu mlflow.start_run() — MLflow Projects sudah membuat run aktif.
 """
 
 import pandas as pd
@@ -18,29 +19,25 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import argparse
 import os
 import json
-import dagshub
 
 # ========================
 # ARGUMENT PARSER
 # ========================
 parser = argparse.ArgumentParser()
-parser.add_argument('--train_data', type=str, default='insurance_preprocessing/train.csv')
-parser.add_argument('--test_data', type=str, default='insurance_preprocessing/test.csv')
-parser.add_argument('--n_estimators', type=int, default=200)
-parser.add_argument('--max_depth', type=int, default=10)
+parser.add_argument('--train_data',        type=str, default='insurance_preprocessing/train.csv')
+parser.add_argument('--test_data',         type=str, default='insurance_preprocessing/test.csv')
+parser.add_argument('--n_estimators',      type=int, default=200)
+parser.add_argument('--max_depth',         type=int, default=10)
 parser.add_argument('--min_samples_split', type=int, default=2)
-parser.add_argument('--min_samples_leaf', type=int, default=1)
-parser.add_argument('--random_state', type=int, default=42)
+parser.add_argument('--min_samples_leaf',  type=int, default=1)
+parser.add_argument('--random_state',      type=int, default=42)
 args = parser.parse_args()
 
 # ========================
-# KONFIGURASI DAGSHUB
+# KONFIGURASI MLFLOW
+# Tracking URI sudah di-set via env var MLFLOW_TRACKING_URI di ci.yml.
+# Tidak perlu dagshub.init() di sini.
 # ========================
-dagshub.init(
-    repo_owner='mohamadsolkhannawawi',
-    repo_name='mlsystem-solkhan',
-    mlflow=True
-)
 mlflow.set_experiment("Insurance-CI-Pipeline")
 
 # ========================
@@ -59,19 +56,14 @@ print(f"[INFO] Train: {X_train.shape} | Test: {X_test.shape}")
 
 # ========================
 # TRAINING
-# FIX: Tidak pakai mlflow.start_run() — MLflow Projects sudah membuat
-#      run aktif secara otomatis. Langsung log ke run yang sudah ada.
+# MLflow Projects sudah membuat run aktif — langsung log ke run tersebut.
 # ========================
-mlflow.set_tag("run_name", "CI-RandomForest")
-
-# Log params
 mlflow.log_param("n_estimators",      args.n_estimators)
 mlflow.log_param("max_depth",         args.max_depth)
 mlflow.log_param("min_samples_split", args.min_samples_split)
 mlflow.log_param("min_samples_leaf",  args.min_samples_leaf)
 mlflow.log_param("random_state",      args.random_state)
 
-# Train
 model = RandomForestRegressor(
     n_estimators=args.n_estimators,
     max_depth=args.max_depth,
@@ -132,11 +124,9 @@ mlflow.log_artifact("feature_importance.png")
 mlflow.log_artifact("actual_vs_predicted.png")
 mlflow.log_artifact("model_summary.json")
 
-# Ambil run_id dari run aktif yang dibuat MLflow Projects
+# Simpan run_id untuk step Build Docker di ci.yml
 run_id = mlflow.active_run().info.run_id
 print(f"[INFO] Run ID: {run_id}")
-
-# Simpan run_id untuk dipakai step Build Docker
 with open("latest_run_id.txt", "w") as f:
     f.write(run_id)
 
