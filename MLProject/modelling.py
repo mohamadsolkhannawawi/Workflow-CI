@@ -6,6 +6,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 import argparse
 import os
+import joblib
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--train_data', type=str, default='insurance_preprocessing/train.csv')
@@ -17,7 +18,7 @@ print("Train path:", args.train_data)
 print("Test path:", args.test_data)
 
 # ========================
-# VALIDASI FILE (ANTI ERROR)
+# VALIDASI FILE
 # ========================
 if not os.path.exists(args.train_data):
     raise FileNotFoundError(f"Train file not found: {args.train_data}")
@@ -37,17 +38,9 @@ mlflow.set_experiment("insurance_prediction")
 train = pd.read_csv(args.train_data)
 test = pd.read_csv(args.test_data)
 
-print("Columns:", train.columns)
-
-# ========================
-# VALIDASI KOLOM
-# ========================
 if 'charges' not in train.columns:
     raise ValueError("Column 'charges' not found in dataset")
 
-# ========================
-# SPLIT
-# ========================
 X_train = train.drop('charges', axis=1)
 y_train = train['charges']
 X_test = test.drop('charges', axis=1)
@@ -62,17 +55,21 @@ with mlflow.start_run() as run:
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
-
     mae = mean_absolute_error(y_test, y_pred)
+
     mlflow.log_metric("mae", mae)
 
-    # 🔥 WAJIB UNTUK DOCKER
+    # log ke MLflow
     mlflow.sklearn.log_model(model, "model")
 
+    # SIMPAN MODEL LOKAL (FIX DOCKER ERROR)
+    os.makedirs("model", exist_ok=True)
+    joblib.dump(model, "model/model.pkl")
+
+    # SIMPAN RUN_ID
     run_id = run.info.run_id
     print("RUN_ID:", run_id)
 
-    # 🔥 SIMPAN RUN_ID
     with open("run_id.txt", "w") as f:
         f.write(run_id)
 
