@@ -1,12 +1,6 @@
 """
 Modelling - MLProject Entry Point
 Author: Mohamad Solkhan Nawawi
-
-PERBAIKAN:
-- Hapus dagshub.init() — tracking URI di-set via MLFLOW_TRACKING_URI di ci.yml
-  sebelum `mlflow run .` dijalankan. dagshub.init() menimpa URI sehingga
-  run ID dari MLflow Projects tidak dikenal di DagsHub (RESOURCE_DOES_NOT_EXIST).
-- Tidak perlu mlflow.start_run() — MLflow Projects sudah membuat run aktif.
 """
 
 import pandas as pd
@@ -17,7 +11,6 @@ import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import argparse
-import os
 import json
 
 # ========================
@@ -33,12 +26,9 @@ parser.add_argument('--min_samples_leaf',  type=int, default=1)
 parser.add_argument('--random_state',      type=int, default=42)
 args = parser.parse_args()
 
-# ========================
-# KONFIGURASI MLFLOW
-# Tracking URI sudah di-set via env var MLFLOW_TRACKING_URI di ci.yml.
-# Tidak perlu dagshub.init() di sini.
-# ========================
-mlflow.set_experiment("Insurance-CI-Pipeline")
+# TIDAK ada dagshub.init() dan TIDAK ada mlflow.set_experiment() di sini.
+# Keduanya menyebabkan konflik dengan run yang sudah dibuat oleh `mlflow run .`.
+# Experiment dan tracking URI di-set dari ci.yml via env var dan flag --experiment-name.
 
 # ========================
 # LOAD DATA
@@ -55,8 +45,7 @@ feature_names = list(X_train.columns)
 print(f"[INFO] Train: {X_train.shape} | Test: {X_test.shape}")
 
 # ========================
-# TRAINING
-# MLflow Projects sudah membuat run aktif — langsung log ke run tersebut.
+# TRAINING — log langsung ke run aktif dari MLflow Projects
 # ========================
 mlflow.log_param("n_estimators",      args.n_estimators)
 mlflow.log_param("max_depth",         args.max_depth)
@@ -74,7 +63,6 @@ model = RandomForestRegressor(
 model.fit(X_train, y_train)
 y_pred = model.predict(X_test)
 
-# Metrics
 mae  = mean_absolute_error(y_test, y_pred)
 mse  = mean_squared_error(y_test, y_pred)
 rmse = np.sqrt(mse)
@@ -124,7 +112,7 @@ mlflow.log_artifact("feature_importance.png")
 mlflow.log_artifact("actual_vs_predicted.png")
 mlflow.log_artifact("model_summary.json")
 
-# Simpan run_id untuk step Build Docker di ci.yml
+# Simpan run_id untuk step Build Docker
 run_id = mlflow.active_run().info.run_id
 print(f"[INFO] Run ID: {run_id}")
 with open("latest_run_id.txt", "w") as f:
