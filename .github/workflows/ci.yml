@@ -20,7 +20,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.12"
@@ -35,14 +35,22 @@ jobs:
       # =========================
       # RUN MLFLOW PROJECT
       # =========================
-      - name: Run mlflow project
+      - name: Run MLflow Project
         run: |
           mlflow run MLProject
 
       # =========================
-      # GET RUN ID (FIXED)
+      # DEBUG RUN_ID
       # =========================
-      - name: Get RUN_ID
+      - name: Debug RUN_ID file
+        run: |
+          ls -lah MLProject
+          cat MLProject/run_id.txt
+
+      # =========================
+      # SET ENV RUN_ID
+      # =========================
+      - name: Set RUN_ID
         run: |
           echo "RUN_ID=$(cat MLProject/run_id.txt)" >> $GITHUB_ENV
 
@@ -74,16 +82,16 @@ jobs:
           echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
       # =========================
-      # TAG
+      # TAG IMAGE
       # =========================
-      - name: Tag Image
+      - name: Tag Docker Image
         run: |
           docker tag insurance-model ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
 
       # =========================
-      # PUSH
+      # PUSH IMAGE
       # =========================
-      - name: Push Image
+      - name: Push Docker Image
         run: |
           docker push ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
 

@@ -1,15 +1,10 @@
-name: insurance-mlproject
+name: insurance_project
 
 conda_env: conda.yaml
 
 entry_points:
   main:
     parameters:
-      train_data: {type: str, default: "insurance_preprocessing/train.csv"}
-      test_data: {type: str, default: "insurance_preprocessing/test.csv"}
-      n_estimators: {type: int, default: 200}
-      max_depth: {type: int, default: 10}
-      min_samples_split: {type: int, default: 2}
-      min_samples_leaf: {type: int, default: 1}
-      random_state: {type: int, default: 42}
-    command: "python modelling.py --train_data {train_data} --test_data {test_data} --n_estimators {n_estimators} --max_depth {max_depth} --min_samples_split {min_samples_split} --min_samples_leaf {min_samples_leaf} --random_state {random_state}"
+      train_data: {type: str, default: insurance_preprocessing/train.csv}
+      test_data: {type: str, default: insurance_preprocessing/test.csv}
+    command: "python modelling.py --train_data {train_data} --test_data {test_data}"
