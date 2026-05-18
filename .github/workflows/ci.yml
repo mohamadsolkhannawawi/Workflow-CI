@@ -40,7 +40,7 @@ jobs:
       # =========================
       - name: Install dependencies
         run: |
-          pip install mlflow==2.19.0 pandas numpy scikit-learn matplotlib joblib
+          pip install mlflow==2.19.0 pandas numpy scikit-learn matplotlib joblib flask
 
       # =========================
       # RUN MLFLOW PROJECT
@@ -86,13 +86,23 @@ jobs:
           git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main
 
       # =========================
-      # BUILD DOCKER
+      # COPY MODEL KE MLPROJECT
+      # =========================
+      - name: Copy model to MLProject for Docker build
+        run: |
+          cp -r MLProject/model MLProject/model_docker || true
+          ls -la MLProject/
+
+      # =========================
+      # BUILD DOCKER (CUSTOM DOCKERFILE)
       # =========================
       - name: Build Docker Model
         run: |
-          mlflow models build-docker \
-            -m MLProject/model \
-            -n insurance-model
+          cd MLProject
+          docker build \
+            --build-arg MODEL_PATH=model \
+            -t insurance-model:latest \
+            -f Dockerfile .
 
       # =========================
       # DOCKER LOGIN
@@ -108,8 +118,8 @@ jobs:
       # =========================
       - name: Tag Docker Image
         run: |
-          docker tag insurance-model ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
-          docker tag insurance-model ${{ secrets.DOCKER_USERNAME }}/insurance-model:${{ github.sha }}
+          docker tag insurance-model:latest ${{ secrets.DOCKER_USERNAME }}/insurance-model:latest
+          docker tag insurance-model:latest ${{ secrets.DOCKER_USERNAME }}/insurance-model:${{ github.sha }}
 
       - name: Push Docker Image
         run: |
